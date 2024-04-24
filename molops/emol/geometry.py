@@ -28,7 +28,8 @@ class GeometryOptimizer:
         self.remove_hydrogens = remove_hydrogens
         self.sdf_path = os.path.abspath(sdf_path)
     
-    def _initialize_by_rdkit(self, emol: EnhancedMol, xyz_path: str=None) -> Chem.Mol:
+    @staticmethod
+    def _initialize_by_rdkit(emol: EnhancedMol, xyz_path: str=None) -> Chem.Mol:
         mol = emol.rdmol
         ps = AllChem.ETKDGv3()
         ps.randomSeed = 42
@@ -40,7 +41,8 @@ class GeometryOptimizer:
             Chem.MolToXYZFile(mol, xyz_path)
         return mol
     
-    def _initialize_by_openbabel(self, emol: EnhancedMol, xyz_path: str=None):
+    @staticmethod
+    def _initialize_by_openbabel(emol: EnhancedMol, xyz_path: str=None):
         smiles = emol.smiles
         omol = pybel.readstring("smiles", smiles)
         omol.make3D(steps=5000)
