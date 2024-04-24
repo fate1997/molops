@@ -1,7 +1,9 @@
 from copy import deepcopy
 from dataclasses import dataclass
 from io import StringIO
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Union
+from tqdm import tqdm
+from IPython import display
 
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw, rdmolops
@@ -11,29 +13,42 @@ from molops.utils.log import without_rdkit_log
 
 
 @dataclass
-class EnhancedMol(Chem.Mol):
+class EnhancedMol:
     rdmol: Chem.Mol
+    smiles: str=None
     
     def __post_init__(self):
-        self.smiles = Chem.MolToSmiles(self.rdmol)
+        if self.smiles is None:
+            self.smiles = Chem.MolToSmiles(self.rdmol)
+    
+    def __repr__(self):
+        img = self.get_img()
+        display.display(img)
+        return self.smiles
     
     @classmethod
     def from_source(cls, 
-                    source: str, 
-                    remove_hydrogens: bool=True) -> 'EnhancedMol':
-        if source.endswith('.sdf'):
-            mol = Chem.SDMolSupplier(source)[0]
-        elif source.endswith('xyz'):
-            mol = Chem.MolFromXYZFile(source)
-        elif source.endswith('pdb'):
-            mol = Chem.MolFromPDBFile(source)
+                    source: Union[str, Chem.Mol], 
+                    remove_hydrogens: bool=True,
+                    standize: bool=False) -> 'EnhancedMol':
+        if isinstance(source, str):
+            if source.endswith('.sdf'):
+                mol = Chem.SDMolSupplier(source)[0]
+            elif source.endswith('xyz'):
+                mol = Chem.MolFromXYZFile(source)
+            elif source.endswith('pdb'):
+                mol = Chem.MolFromPDBFile(source)
+            else:
+                mol = Chem.MolFromSmiles(source)
+                return cls(rdmol=mol, smiles=source)
         else:
-            mol = Chem.MolFromSmiles(source)
+            mol = source
         
         if mol is None:
             return None
-        
-        mol = cls.standardize(mol)
+        if standize:
+            with without_rdkit_log():
+                mol = cls.standardize(mol)
         if remove_hydrogens:
             mol = Chem.RemoveHs(mol)
         else:
@@ -48,6 +63,7 @@ class EnhancedMol(Chem.Mol):
                 show_index: bool=False,
                 **kwargs):
         mol = deepcopy(self.rdmol)
+        mol.RemoveAllConformers()
         if show_index:
             for i, atom in enumerate(mol.GetAtoms()):
                 atom.SetProp('molAtomMapNumber', str(i))
@@ -59,9 +75,9 @@ class EnhancedMol(Chem.Mol):
                name: str=None,
                prop_dict: Dict[str, float]=None,
                append: bool=False):
-        if self.GetNumConformers() == 0:
-            raise ValueError('No conformer found. Please generate conformer first.')
         mol = deepcopy(self.rdmol)
+        if mol.GetNumConformers() == 0:
+            raise ValueError('No conformer found. Please generate conformer first.')
         sio = StringIO()
         if name is not None:
             mol.SetProp('_Name', name)
@@ -87,8 +103,7 @@ class EnhancedMol(Chem.Mol):
                     stereo: bool=True):
         mol = deepcopy(mol)
         if normalize:
-            with without_rdkit_log():
-                mol = rdMolStandardize.Normalize(mol)
+            mol = rdMolStandardize.Normalize(mol)
         if reionize:
             reionizer = rdMolStandardize.Reionizer()
             mol = reionizer.reionize(mol)
@@ -114,4 +129,44 @@ class EnhancedMol(Chem.Mol):
 class EnhancedMols:
     emols: List[EnhancedMol]
     
-    #!TODO: Implement `from_source`, `__getitem__`, `get_img` method
+    @classmethod
+    def from_source(cls, 
+                    source: Union[str, List[str]], 
+                    remove_hydrogens: bool=True,
+                    show_tqdm: bool=True,
+                    standize: bool=False) -> 'EnhancedMols':
+        if isinstance(source, str):
+            assert source.endswith('.sdf'), 'Only SDF file is supported for now.'
+            source = Chem.SDMolSupplier(source)
+        if show_tqdm:
+            source = tqdm(source, desc='Loading molecules')
+        emols = [EnhancedMol.from_source(s, remove_hydrogens, standize) for s in source]
+        return cls(emols)
+
+    def __repr__(self):
+        return f'EnhancedMols(num_mols={len(self)})'
+    
+    def __len__(self):
+        return len(self.emols)
+    
+    def __getitem__(self, key):
+        return self.emols[key]
+    
+    def get_img(self,
+                head: int=9,
+                figsize: Tuple[int, int]=(300, 300),
+                show_index: bool=False,
+                legends: List[str]=None,
+                **kwargs):
+        rdmols = [emol.rdmol for emol in self.emols[:head]]
+        if show_index:
+            for rdmol in rdmols:
+                for j, atom in enumerate(rdmol.GetAtoms()):
+                    atom.SetProp('molAtomMapNumber', str(j))
+        if legends is None:
+            legends = [f'ID: {i}' for i in range(len(rdmols))]
+        img = Draw.MolsToGridImage(rdmols,
+                                   subImgSize=figsize,
+                                   legends=legends,
+                                   **kwargs)
+        return img

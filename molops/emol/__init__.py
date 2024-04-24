@@ -1,1 +1,1 @@
-from .emol import EnhancedMol
+from .emol import EnhancedMol, EnhancedMols
