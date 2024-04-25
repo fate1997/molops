@@ -8,6 +8,7 @@ from IPython import display
 from rdkit import Chem
 from rdkit.Chem import AllChem, Draw, rdmolops
 from rdkit.Chem.MolStandardize import rdMolStandardize
+import pandas as pd
 
 from molops.utils.log import without_rdkit_log
 
@@ -22,10 +23,8 @@ class EnhancedMol:
             self.smiles = Chem.MolToSmiles(self.rdmol)
     
     def __repr__(self):
-        img = self.get_img()
-        display.display(img)
-        return self.smiles
-    
+        return f'EnhancedMol(smiles={self.smiles})'
+       
     @classmethod
     def from_source(cls, 
                     source: Union[str, Chem.Mol], 
@@ -51,8 +50,6 @@ class EnhancedMol:
                 mol = cls.standardize(mol)
         if remove_hydrogens:
             mol = Chem.RemoveHs(mol)
-        else:
-            mol = Chem.AddHs(mol)
         return cls(rdmol=mol)
     
     def set_rdmol(self, mol: Chem.Mol):
@@ -130,8 +127,29 @@ class EnhancedMols:
     emols: List[EnhancedMol]
     
     @classmethod
+    def from_csv(cls, 
+                 csv_path: str,
+                 property_cols: List[str]=None,
+                 smiles_col: str='smiles',
+                 num_samples: int=-1,
+                 remove_hydrogens: bool=True,
+                 show_tqdm: bool=True,
+                 standize: bool=False) -> 'EnhancedMols':
+        df = pd.read_csv(csv_path)
+        num_samples = len(df) if num_samples == -1 else num_samples
+        df = df.sample(num_samples, random_state=42)
+        source = df[smiles_col].tolist()
+        if property_cols is not None:
+            properties = {col: df[col].tolist() for col in property_cols}
+        else:
+            properties = None
+        return cls.from_source(source, properties, remove_hydrogens, show_tqdm, standize)
+        
+    
+    @classmethod
     def from_source(cls, 
                     source: Union[str, List[str], Chem.Mol], 
+                    properties: Dict[str, List[float]]=None,
                     remove_hydrogens: bool=True,
                     show_tqdm: bool=True,
                     standize: bool=False) -> 'EnhancedMols':
@@ -140,7 +158,16 @@ class EnhancedMols:
             source = Chem.SDMolSupplier(source)
         if show_tqdm:
             source = tqdm(source, desc='Loading molecules')
-        emols = [EnhancedMol.from_source(s, remove_hydrogens, standize) for s in source]
+        if properties is not None:
+            for value in properties.values():
+             assert len(source) == len(value), 'Number of properties should be the same as number of molecules.'
+        emols = []
+        for i, source in enumerate(source):
+            emol = EnhancedMol.from_source(source, remove_hydrogens=remove_hydrogens, standize=standize)
+            if properties is not None:
+                for k, v in properties.items():
+                    emol.set_attr(k, v[i])
+            emols.append(emol)
         return cls(emols)
 
     def __repr__(self):
@@ -149,7 +176,7 @@ class EnhancedMols:
     def __len__(self):
         return len(self.emols)
     
-    def __getitem__(self, key):
+    def __getitem__(self, key) -> EnhancedMol:
         return self.emols[key]
     
     def get_img(self,

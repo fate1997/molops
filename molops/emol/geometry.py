@@ -130,8 +130,9 @@ class GeometryOptimizer:
         optimized_mol = self.optimize_mol(emol, tempdir=tempdir, level=level)
         if optimized_mol is None:
             return None
-        emol = EnhancedMol.from_source(optimized_mol, remove_hydrogens=False)
-        emol.to_sdf(self.sdf_path, cmpd_name, append=append_to_sdf)
+        prop_dict = emol.__dict__
+        prop_dict.pop('rdmol')
+        optimized_mol.to_sdf(self.sdf_path, cmpd_name, append=append_to_sdf, prop_dict=prop_dict)
         return emol
     
     def optimize_mols(self, emols: List[EnhancedMol], **kwargs) -> EnhancedMols:
@@ -140,8 +141,11 @@ class GeometryOptimizer:
             level = kwargs.get('level', 'normal')
             args = [(emol, f'MOL_{i}', os.path.join(self.workdir, f'temp_{i%max_dir_size}'), level, i!=0)\
                     for i, emol in enumerate(emols)]
-            with multiprocessing.Pool(self.num_workers) as pool:
-                results = pool.starmap(self._optimize_worker, args)
+            if self.num_workers == 1:
+                results = [self._optimize_worker(*arg) for arg in args]
+            else:
+                with multiprocessing.Pool(self.num_workers) as pool:
+                    results = pool.starmap(self._optimize_worker, args)
         elif self.method in ['UFF', 'MMFF94', 'ETKDG']:
             emols = [self.optimize_mol(emol) for emol in emols]
             results = EnhancedMols(emols)
