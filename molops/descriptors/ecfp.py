@@ -5,8 +5,7 @@ from ._abc import Descriptors
 
 class ECFP(Descriptors):
     
-    @staticmethod
-    def calculate_mol(mol, config):
+    def calculate_mol(self, mol, config):
         radius = config['radius']
         nBits = config['nbits']
         return list(AllChem.GetMorganFingerprintAsBitVect(mol, radius, nBits=nBits))

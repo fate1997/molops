@@ -9,24 +9,26 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from openbabel import pybel
 
-from molops.emol import EnhancedMol
+from molops.emol import EnhancedMol, EnhancedMols
 
 
 class GeometryOptimizer:
     def __init__(self, 
                  method: Literal['UFF', 'MMFF94', 'XTB', 'ETKDG'], 
-                 workdir: str,
+                 workdir: str=None,
                  sdf_path: str=None,
                  num_workers: int=1,
                  remove_hydrogens: bool=False):
         self.method = method.upper()
-        os.makedirs(workdir, exist_ok=True)
-        self.workdir = os.path.abspath(workdir)
+        if method == 'XTB':
+            workdir = './tmp' if workdir is None else workdir
+            os.makedirs(workdir, exist_ok=True)
+        self.workdir = os.path.abspath(workdir) if workdir is not None else None
         if num_workers == -1:
             num_workers = multiprocessing.cpu_count()
         self.num_workers = num_workers
         self.remove_hydrogens = remove_hydrogens
-        self.sdf_path = os.path.abspath(sdf_path)
+        self.sdf_path = os.path.abspath(sdf_path) if sdf_path is not None else None
     
     @staticmethod
     def _initialize_by_rdkit(emol: EnhancedMol, xyz_path: str=None) -> Chem.Mol:
@@ -85,12 +87,12 @@ class GeometryOptimizer:
     def optimize_mol(self, 
                      emol: EnhancedMol, 
                      initial_method: Literal['rdkit', 'openbabel']='openbabel',
-                     **kwargs) -> Chem.Mol:
+                     **kwargs) -> EnhancedMol:
         mol = emol.rdmol
         mol = Chem.AddHs(mol)
         if self.method in ['UFF', 'MMFF94', 'ETKDG']:
             if mol.GetNumConformers() == 0:
-                mol = self._initialize_by_rdkit(mol)
+                mol = self._initialize_by_rdkit(emol)
             if self.method == 'UFF':
                 AllChem.UFFOptimizeMolecule(mol)
             if self.method == 'MMFF94':
@@ -115,9 +117,8 @@ class GeometryOptimizer:
                 print(f'Omol and RDKit molecule atoms do not match')
                 return None
             mol.AddConformer(optimized_mol.GetConformer(0))
-        if self.remove_hydrogens:
-            mol = Chem.RemoveHs(mol)
-        return mol
+        emol = EnhancedMol.from_source(mol, remove_hydrogens=self.remove_hydrogens)
+        return emol
 
     def _optimize_worker(self,
                          emol: EnhancedMol, 
@@ -133,11 +134,15 @@ class GeometryOptimizer:
         emol.to_sdf(self.sdf_path, cmpd_name, append=append_to_sdf)
         return emol
     
-    def optimize_mols(self, emols: List[EnhancedMol], **kwargs) -> str:
-        max_dir_size = kwargs.get('max_dir_size', 100)
-        level = kwargs.get('level', 'normal')
-        args = [(emol, f'MOL_{i}', os.path.join(self.workdir, f'temp_{i%max_dir_size}'), level, i!=0)\
-                for i, emol in enumerate(emols)]
-        with multiprocessing.Pool(self.num_workers) as pool:
-            results = pool.starmap(self._optimize_worker, args)
+    def optimize_mols(self, emols: List[EnhancedMol], **kwargs) -> EnhancedMols:
+        if self.method == 'XTB':
+            max_dir_size = kwargs.get('max_dir_size', 100)
+            level = kwargs.get('level', 'normal')
+            args = [(emol, f'MOL_{i}', os.path.join(self.workdir, f'temp_{i%max_dir_size}'), level, i!=0)\
+                    for i, emol in enumerate(emols)]
+            with multiprocessing.Pool(self.num_workers) as pool:
+                results = pool.starmap(self._optimize_worker, args)
+        elif self.method in ['UFF', 'MMFF94', 'ETKDG']:
+            emols = [self.optimize_mol(emol) for emol in emols]
+            results = EnhancedMols(emols)
         return results

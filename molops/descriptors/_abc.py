@@ -41,6 +41,9 @@ class Descriptors(ABC):
     def __len__(self):
         return len(self.values)
     
+    def set_columns(self, columns: List[str]):
+        self.columns = columns
+    
     @property
     def numpy_values(self):
         return np.array(self.values)
@@ -53,9 +56,9 @@ class Descriptors(ABC):
     def df(self):
         return pd.DataFrame(self.numpy_values, columns=self.columns)
 
-    @staticmethod
     @abstractmethod
-    def calculate_mol(mol: Chem.Mol, 
+    def calculate_mol(self,
+                      mol: Chem.Mol, 
                       config: Dict[str, Any]) -> List[Union[float, int]]:
         pass
     

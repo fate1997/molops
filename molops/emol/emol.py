@@ -131,7 +131,7 @@ class EnhancedMols:
     
     @classmethod
     def from_source(cls, 
-                    source: Union[str, List[str]], 
+                    source: Union[str, List[str], Chem.Mol], 
                     remove_hydrogens: bool=True,
                     show_tqdm: bool=True,
                     standize: bool=False) -> 'EnhancedMols':
@@ -170,3 +170,11 @@ class EnhancedMols:
                                    legends=legends,
                                    **kwargs)
         return img
+    
+    @property
+    def rdmols(self):
+        return [emol.rdmol for emol in self.emols]
+    
+    @property
+    def smiles(self):
+        return [emol.smiles for emol in self.emols]

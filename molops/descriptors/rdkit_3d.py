@@ -5,6 +5,7 @@ from ._abc import Descriptors
 
 class RDKit3D(Descriptors):
     
-    @staticmethod
-    def calculate_mol(mol, config):
-        return list(Descriptors3D.CalcMolDescriptors3D(mol).keys())
+    def calculate_mol(self, mol, config):
+        desc_dict = Descriptors3D.CalcMolDescriptors3D(mol)
+        self.set_columns(list(desc_dict.keys()))
+        return list(desc_dict.values())
