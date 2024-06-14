@@ -1,13 +1,20 @@
+# Reimplementation of the gas entropy model in the paper:
+# https://www.biorxiv.org/content/10.1101/2021.05.26.445640v1.full
+
 import numpy as np
 from lapy import TriaMesh
 from rdkit import Chem, RDLogger
 from skimage import measure
+
 from molops.emol import EnhancedMol
+
 from .register import register_property, require_geometry
+
 RDLogger.DisableLog('rdApp.*')
 
 
 def gaussian_3D(x: np.array, mol: Chem.Mol, sigma: float=0.1):
+    r"""Calculate the 3D Gaussian function for a molecule."""
     coords = mol.GetConformer().GetPositions()
     gaussian_sum = 0
     for atom in mol.GetAtoms():
@@ -19,12 +26,12 @@ def gaussian_3D(x: np.array, mol: Chem.Mol, sigma: float=0.1):
     return results
 
 
-def iso_surface(
-                mol: Chem.Mol,
+def iso_surface(mol: Chem.Mol,
                 threshold: float,
                 spacing: float=0.2,
                 padding: float=2,
                 sigma: float=0.1):
+    r"""Calculate the iso-surface of a molecule."""
     coords = mol.GetConformer().GetPositions()
     min_coords = np.min(coords, axis=0)
     grid_min_coords = min_coords - padding  # in Angstrom
@@ -44,6 +51,7 @@ def iso_surface(
 
 
 def get_entropy(values, surface_area_list):
+    r"""Calculate the entropy of a series values."""
     prob_density, bins = np.histogram(values, bins=64, density=True)
     prob_per_bin = prob_density * np.diff(bins)
     bins[-1] += 1e-6
@@ -53,24 +61,26 @@ def get_entropy(values, surface_area_list):
 
 
 def get_shape_entropy(verts, faces):
+    r"""Calculate the shape entropy of a molecule."""
     mesh = TriaMesh(verts, faces)
     _, _, k1, k2 = mesh.curvature_tria()
     C_face = 2 / np.pi * np.log((k1**2 + k2**2) / 2)
     S_face = 2 / np.pi * np.arctan((k1 + k2) / (k2 - k1))
     areas_face = mesh.tria_areas()
     
-    # shape_entropy = get_entropy(C_face, areas_face)
+    shape_entropy = get_entropy(C_face, areas_face)
     curvd_entropy = get_entropy(S_face, areas_face)
-    return curvd_entropy
+    return curvd_entropy, shape_entropy
 
 
 @register_property('gas_entropy')
 @require_geometry
 def get_gas_entropy(emol: EnhancedMol):
+    r"""Estimate the gas phase entropy of a molecule based on its shape."""
     mol = emol.rdmol
     mol = Chem.RemoveHs(mol)
     verts, faces = iso_surface(mol, threshold=0.1)
-    curvd_entropy = get_shape_entropy(verts, faces)
+    curvd_entropy, _ = get_shape_entropy(verts, faces)
     intercept = 70.56867019293395
     scale = 8.70679694
     entropy = intercept + scale * curvd_entropy

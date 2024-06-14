@@ -1,0 +1,17 @@
+lapy==1.0.1
+matplotlib==3.8.0
+morfeus_ml==0.7.2
+numpy==1.26.4
+openbabel==3.1.1.1
+pandas==2.2.2
+Pint==0.23
+pymatgen==2024.2.8
+rdkit==2023.9.1
+rdkit==2023.9.5
+rdkit_pypi==2022.9.5
+scipy==1.13.1
+seaborn==0.13.2
+setuptools==68.0.0
+skimage==0.0
+torch==2.1.0
+tqdm==4.66.1

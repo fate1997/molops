@@ -1,6 +1,11 @@
+# Implementation of solid entropy estimation from:
+# https://pubs.acs.org/doi/10.1021/ja0619612
+
 from pint import UnitRegistry
-from .crystal_volume import get_crystal_volume
+
 from molops.emol import EnhancedMol
+
+from .crystal_volume import get_crystal_volume
 from .register import register_property
 
 ureg = UnitRegistry()

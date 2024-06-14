@@ -46,6 +46,7 @@ ATOM_VOLUME_CONTRIBUTIONS = {
 
 @register_property('crystal_volume')
 def get_crystal_volume(emol: EnhancedMol):
+    r"""Estimate the crystal volume of a molecule based on atomic contributions."""
     mol = emol.rdmol
     volume = 0
     mol = Chem.AddHs(mol)
