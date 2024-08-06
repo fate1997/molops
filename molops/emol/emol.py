@@ -245,7 +245,7 @@ class EnhancedMols:
             source = tqdm(source, desc='Loading molecules')
         if properties is not None:
             for value in properties.values():
-             assert len(source) == len(value), 'Number of properties should be the same as number of molecules.'
+                assert len(source) == len(value), 'Number of properties should be the same as number of molecules.'
         emols = []
         for i, source in enumerate(source):
             emol = EnhancedMol.from_source(source, remove_hydrogens=remove_hydrogens, standize=standize)
