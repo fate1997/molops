@@ -8,7 +8,7 @@ This repository contains a lot of useful operation functions to manipulate molec
 
 ## Installation
 ```bash
-pip install lapy matplotlib morfeus_ml numpy pandas pint pymatgen scipy seaborn setuptools skimage tqdm
+pip install lapy matplotlib morfeus_ml numpy pandas pint pymatgen scipy seaborn setuptools scikit-image tqdm
 
 conda install -c conda-forge openbabel
 conda install -c rdkit rdkit
