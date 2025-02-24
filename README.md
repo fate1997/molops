@@ -1,10 +1,9 @@
 # ${\color{#FF9EAA}\rm{Mol}\color{black}\rm{ecule} \space \color{#FF9EAA}\rm{Op}\color{black}\rm{eration}}\color{#FF9EAA}\rm{s}$
 This repository contains a lot of useful operation functions to manipulate molecules. Inluding but not limited to:
-- [x] Read and write molecular files in various formats.
-- [x] Calculate molecular properties.
-- [x] Generate and optimize molecular geometries.
-- [x] Calculate molecular descriptors.
-- [x] Filter and repair molecules.
+- Read and write molecular files in various formats.
+- Generate and optimize molecular geometries.
+- Calculate molecular descriptors.
+- Filter and repair molecules.
 
 ## Installation
 ```bash
@@ -19,20 +18,94 @@ pip install -e .
 ```
 
 ## Modules
-### descriptors
-- [x] `ECFP`: Extended Connectivity Fingerprint.
-- [x] `RDKit2D`: RDKit 2D descriptors.
-- [x] `RDKit3D`: RDKit 3D descriptors.
 
 ### emol (Enhanced Molecule)
-- [x] `EnhancedMol`: Enhanced molecule class. Could be initialized from various formats (including SMILES, XYZ, SDF, PDB, etc.). This class is to extend the functionalities of RDKit Mol class.
-- [x] `EnhancedMols`: Enhanced molecules class. Could be initialized from various formats (including CSV, SMILES strings, SDF).
+- `EnhancedMol`: Enhanced molecule class. Could be initialized from various formats (including SMILES, XYZ, SDF, PDB, etc.). This class is to extend the functionalities of RDKit Mol class.
+```python
+from molops.emol import EnhancedMol
+
+emol = EnhancedMol.from_smiles('CCO')
+emol = EnhancedMol.from_xyz('XXX.xyz')
+emol = EnhancedMol.from_sdf('XXX.sdf')
+
+emol.init_geometry('openbabel')
+emol.write_sdf('XXX.sdf')
+emol.write_xyz('XXX.xyz')
+```
+
+- `EMolContainer`: Enhanced molecules class. Could be initialized from various formats (including CSV, SMILES strings, SDF).
+```python
+from molops.emol import EMolContainer
+
+emols = EMolContainer.from_smiles_list(['CCO', 'CCN', 'CCF'])
+emols = EMolContainer.from_csv('XXX.csv')
+emols = EMolContainer.from_sdf('XXX.sdf')
+
+emols.write_sdf('XXX.sdf')
+``` 
+
+### descriptors
+- `ECFP`: Extended Connectivity Fingerprint.
+- `RDKit2D`: RDKit 2D descriptors.
+- `RDKit3D`: RDKit 3D descriptors.
+```python
+from molops.emol import EMolContainer
+from molops.descriptors import get_descriptors
+
+emols = EMolContainer.from_smiles(['CCO', 'CCN', 'CCF'])
+descriptors = get_descriptors(emols, ['ECFP']) # 'ecfp', 'rdkit2d', 'rdkit3d'
+```
 
 ### filter & repair
-- [x] `DataFilter`: Filter molecules based on given criterions.
-- [x] `MolRepair`: Repair molecules.
+- `DataFilter`: Filter molecules based on given criterions.
+```python
+from molops.tools import DataFilter
+import pandas as pd
 
-### geometry optimization (`GeometryOptimizer`)
-- [x] ETKDG and OpenBabel geometry initialization.
-- [x] UFF, MMFF94 force field optimization.
-- [x] XTB optimization (parallelized).
+df = pd.read_csv('XXX.csv')
+filter = DataFilter(
+    df = df,
+    smiles_col: str = 'smiles',
+    target_col: str = 'target',
+)
+filter.to_cano_smiles()
+filter.restrict_target_range(max_val=10, min_val=0)
+filter.remove_mixtures()
+filter.remove_duplicates()
+filter.remove_by_num_elem(min_num_elem=5, max_num_elem=50)
+filter.remove_metal_coord()
+filter.remove_by_mass(min_mass=50, max_mass=500)
+
+filter.view_distribution()
+filter.save('XXX.csv')
+```
+- `MolRepair`: Repair molecules.
+```python
+from molops.emol import EMolContainer
+from molops.tools import MolRepair
+
+emols = EMolContainer.from_smiles(['CCO', 'CCN', 'CCF'])
+repair = MolRepair(
+    replace_radical: bool=True,
+    canonical_tautomer: bool=True,
+    canonical_stereo: bool=False,
+    canonical_smiles: bool=True,
+    show_tqdm: bool=False,
+)
+emols = repair.repair(emols)
+```
+
+### model
+- `XTB`: optimize molecules; generated density file, orbital file, or esp file.
+```python
+from molops.emol import EnhancedMol
+from molops.model import XTBModel
+
+emol = EnhancedMol.from_smiles('CCO')
+xtb = XTBModel()
+emol = xtb.optimize_emol(emol)
+
+out = xtb.eval(emol, target=['esp', 'density', 'molden'])
+```
+- `MultiWfn`: calculate esp histogram based on molecular orbitals.
+- `PySCF`: obtain esp cube.

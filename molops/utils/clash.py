@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.spatial.distance import cdist
 from rdkit import Chem
+from scipy.spatial.distance import cdist
 
 
 def get_vdw_radii(atom_num: int) -> np.ndarray:

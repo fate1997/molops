@@ -2,19 +2,20 @@ from typing import Literal
 
 import numpy as np
 
-from molops.emol import EnhancedMols, GeometryOptimizer
+from molops.emol import EMolContainer
 
 from .ecfp import ECFP
-from .il_desc import ILDesc
 from .rdkit_2d import RDKit2D
 from .rdkit_3d import RDKit3D
 
 
-def get_descriptors(emols: EnhancedMols, 
-                    desc_type: Literal['ecfp', 'rdkit2d', 'rdkit3d', 'il_desc'],
-                    geometry_optimize_method: Literal['UFF', 'MMFF94', 'XTB', 'ETKDG']='ETKDG',
-                    return_columns: bool=False,
-                    show_tqdm: bool=True) -> np.ndarray:
+def get_descriptors(
+    emols: EMolContainer, 
+    desc_type: Literal['ecfp', 'rdkit2d', 'rdkit3d'],
+    geometry_optimize_method: Literal['rdkit', 'openbabel']='rdkit',
+    return_columns: bool=False,
+    show_tqdm: bool=True
+) -> np.ndarray:
     r"""Get descriptors for a list of EnhancedMol objects.
     
     Args:
@@ -28,20 +29,18 @@ def get_descriptors(emols: EnhancedMols,
     Returns:
         np.ndarray: Numpy array of descriptors.
     """
+    desc_type = desc_type.lower()
     if desc_type == 'ecfp':
         desc = ECFP(emols, config={"radius": 4, "nbits": 2048}, show_tqdm=show_tqdm)
     elif desc_type == 'rdkit2d':
         desc = RDKit2D(emols, config={"only_robust": True}, show_tqdm=show_tqdm)
     elif desc_type == 'rdkit3d' or desc_type == 'il_desc':
-        if emols[0].rdmol.GetNumConformers() == 0:
+        if emols[0].num_conformers == 0:
             if geometry_optimize_method is None:
                 raise ValueError('RDKit3D descriptor requires geometry optimization method')
-            geom_opt = GeometryOptimizer(method=geometry_optimize_method)
-            emols = geom_opt.optimize_mols(emols)
+            emols = [emol.init_geometry(geometry_optimize_method) for emol in emols]
         if desc_type == 'rdkit3d':
             desc = RDKit3D(emols, show_tqdm=show_tqdm)
-        elif desc_type == 'il_desc':
-            desc = ILDesc(emols, show_tqdm=show_tqdm)
     else:
         raise ValueError(f'Invalid descriptor type: {desc_type}')
     if return_columns:

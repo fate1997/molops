@@ -1,106 +1,244 @@
+import os
+import tempfile
+import warnings
 from copy import deepcopy
-from dataclasses import dataclass
 from io import StringIO
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Tuple
 
+import ase
+import ase.io
 import numpy as np
 import pandas as pd
+import py3Dmol
+import pyscf
+from openbabel import pybel
+from PIL import Image
 from rdkit import Chem
-from rdkit.Chem import Draw, rdmolops
-from rdkit.Chem.MolStandardize import rdMolStandardize
-from tqdm import tqdm
+from rdkit.Chem import AllChem, Draw
+from rdkit.Chem.rdchem import Mol
+from rdkit.Geometry import Point3D
 
-from molops.utils.log import without_rdkit_log
+from molops.emol._parser import parse_cube
 
 
-@dataclass
 class EnhancedMol:
-    r"""Class for EnhancedMol object.
+    """EnhancedMol class for handling RDKit Mol objects.
     
     Attributes:
-        rdmol (Chem.Mol): RDKit Mol object.
-        smiles (str, optional): SMILES string. Defaults to None.
+        rdmol (Mol): RDKit Mol object.
+        atoms (List[Chem.rdchem.Atom]): List of RDKit Atom objects.
+        bonds (List[Chem.rdchem.Bond]): List of RDKit Bond objects.
+        geometry (np.ndarray): Molecular geometry.
+        smiles (str): SMILES representation.
+        num_atoms (int): Number of atoms.
+        atom_num (List[int]): Atomic numbers.
+        num_conformers (int): Number of conformers.
+        num_unpairs (int): Number of unpaired electrons.
+        charge (int): Formal charge.
+        partial_charges (List[float]): Partial charges.
+        components (List[EnhancedMol]): List of components.
+        features (Dict[str, Any]): Molecular features or properties.
     """
-    rdmol: Chem.Mol
-    smiles: str=None
-    
-    def __post_init__(self):
-        if self.smiles is None:
-            self.smiles = Chem.MolToSmiles(self.rdmol)
-    
-    def __repr__(self):
-        return f'EnhancedMol(smiles={self.smiles})'
-    
-    @property
-    def num_conformers(self):
-        return self.rdmol.GetNumConformers()
-    
-    @property
-    def components(self):
-        r"""Get components of the molecule."""
-        if '.' in self.smiles:
-            comp_smiles = self.smiles.split('.')
-            components = [EnhancedMol.from_source(smiles) for smiles in comp_smiles]
-        else:
-            components = [self]
-        return components  
-    
-    @property
-    def prop(self):
-        r"""Get properties of the molecule."""
-        prop_dict = self.__dict__.copy()
-        prop_dict.pop('rdmol')
-        return prop_dict
-       
+    def __init__(self, rdmol: Mol, **feature_dict):
+        if rdmol is None:
+            warnings.warn('Input RDKit Mol is None.')
+        self._rdmol = rdmol
+        
+        self._atoms: List[Chem.rdchem.Atom] = None
+        self._bonds: List[Chem.rdchem.Bond] = None
+        self._geometry: np.ndarray = None
+        self._smiles: str = None
+        self._num_atoms: int = None
+        self._atom_num: List[int] = None
+        self._num_conformers: int = None
+        self._num_unpairs: int = None
+        self._charge: int = None
+        self._components: List['EnhancedMol'] = None
+        
+        # Molecular features or properties
+        if self.rdmol is not None:
+            feature_dict.update(self.rdmol.GetPropsAsDict())
+        self.features: Dict[str, Any] = feature_dict
+        
     @classmethod
-    def from_source(cls, 
-                    source: Union[str, Chem.Mol], 
-                    remove_hydrogens: bool=True,
-                    standize: bool=False) -> 'EnhancedMol':
-        r"""Create EnhancedMol object from source.
-        
-        Args:
-            source (Union[str, Chem.Mol]): Source to create EnhancedMol object.
-                The supported sources are SMILES string, SDF file, XYZ file, and PDB file.
-            remove_hydrogens (bool, optional): Whether to remove hydrogens. Defaults to True.
-            standize (bool, optional): Whether to standize the molecule. Defaults to False.
-        
-        Returns:
-            EnhancedMol: EnhancedMol object.
-        """
-        if isinstance(source, str):
-            if source.endswith('.sdf'):
-                mol = Chem.SDMolSupplier(source)[0]
-            elif source.endswith('xyz'):
-                mol = Chem.MolFromXYZFile(source)
-            elif source.endswith('pdb'):
-                mol = Chem.MolFromPDBFile(source)
-            else:
-                mol = Chem.MolFromSmiles(source)
-                return cls(rdmol=mol, smiles=source)
-        else:
-            mol = source
-        
-        if mol is None:
+    def from_smiles(cls, smiles: str, sanitize: bool=True) -> 'EnhancedMol':
+        """Create EnhancedMol object from SMILES string."""
+        rdmol = Chem.MolFromSmiles(smiles, sanitize=sanitize)
+        return cls(rdmol=rdmol)
+    
+    @classmethod
+    def from_sdf(
+        cls, 
+        path: str, 
+        sanitize: bool=True,
+        remove_hydrogens: bool=False
+    ) -> 'EnhancedMol':
+        """Create EnhancedMol object from SDF file."""
+        rdmol = Chem.SDMolSupplier(path, sanitize, remove_hydrogens)[0]
+        return cls(rdmol=rdmol)
+    
+    @classmethod
+    def from_xyz(cls, path: str, sanitize: bool=True) -> 'EnhancedMol':
+        """Create EnhancedMol object from XYZ file."""
+        rdmol = Chem.MolFromXYZFile(path)
+        if rdmol is None:
             return None
-        if standize:
-            with without_rdkit_log():
-                mol = cls.standardize(mol)
-        if remove_hydrogens:
-            mol = Chem.RemoveHs(mol)
-        return cls(rdmol=mol)
+        if sanitize:
+            Chem.SanitizeMol(rdmol)
+        return cls(rdmol=rdmol)
     
-    def set_rdmol(self, mol: Chem.Mol, update_smiles: bool=True):
-        r"""Set RDKit Mol object."""
-        self.rdmol = mol
-        if update_smiles:
-            self.smiles = Chem.MolToSmiles(mol)
+    @classmethod
+    def from_cube(cls, path: str) -> 'EnhancedMol':
+        """Create EnhancedMol object from cube file."""
+        output = parse_cube(path)
+        rdmol = Chem.MolFromXYZBlock(output['xyz'])
+        emol = cls(rdmol=rdmol)
+        emol._partial_charges = output['partial_charges']
+        return emol
     
-    def get_img(self,
-                figsize: Tuple[int, int]=(300, 300),
-                show_index: bool=False,
-                **kwargs):
-        r"""Get image of the molecule."""
+    def __repr__(self) -> str:
+        return f'EnhancedMol(num_atoms={self.num_atoms}, ' \
+               f'num_conformers={self.num_conformers})' 
+    
+    def __len__(self) -> int:
+        return self.num_atoms
+    
+    @property
+    def is_none(self) -> bool:
+        return self.rdmol is None
+    
+    @property
+    def rdmol(self) -> Mol:
+        return self._rdmol
+    
+    @property
+    def atoms(self) -> List[Chem.rdchem.Atom]:
+        if self._atoms is None:
+            self._atoms = [atom for atom in self.rdmol.GetAtoms()]
+        return self._atoms
+    
+    @property
+    def bonds(self) -> List[Chem.rdchem.Bond]:
+        if self._bonds is None:
+            self._bonds = [bond for bond in self.rdmol.GetBonds()]
+        return self._bonds
+    
+    @property
+    def geometry(self) -> np.ndarray:
+        if self._geometry is None:
+            if self.num_conformers > 0:
+                self._geometry = self.rdmol.GetConformer().GetPositions()
+        return self._geometry
+    
+    @property
+    def smiles(self) -> str:
+        if self._smiles is None:
+            self._smiles = Chem.MolToSmiles(self.rdmol)
+        return self._smiles
+
+    @property
+    def atom_num(self) -> List[int]:
+        if self._atom_num is None:
+            self._atom_num = [atom.GetAtomicNum() for atom in self.atoms]
+        return self._atom_num
+
+    @property
+    def num_atoms(self) -> int:
+        if self._num_atoms is None:
+            self._num_atoms = self.rdmol.GetNumAtoms()
+        return self._num_atoms
+    
+    @property
+    def num_conformers(self) -> int:
+        if self._num_conformers is None:
+            self._num_conformers = self.rdmol.GetNumConformers()
+        return self._num_conformers
+
+    @property
+    def num_unpairs(self) -> int:
+        if self._num_unpairs is None:
+            unpairs = [atom.GetNumRadicalElectrons() for atom in self.atoms]
+            self._num_unpairs = sum(unpairs)
+        return self._num_unpairs
+    
+    @property
+    def charge(self) -> int:
+        if self._charge is None:
+            self._charge = Chem.GetFormalCharge(self.rdmol)
+        return self._charge
+    
+    @property
+    def partial_charges(self) -> List[float]:
+        atom_dict = self.atoms[0].GetPropsAsDict()
+        if 'partial_charges' in atom_dict:
+            charges = [float(atom.GetProp('partial_charges')) for atom in self.atoms]
+        else:
+            print('Partial charges not found. Returning zero charges.')
+            charges = [0.0] * self.num_atoms
+        return charges
+    
+    @partial_charges.setter
+    def partial_charges(self, charges: List[float]):
+        self.add_atom_attr('partial_charges', charges)
+    
+    @property
+    def components(self) -> List['EnhancedMol']:
+        if self._components is None:
+            components = []
+            for component in Chem.GetMolFrags(self.rdmol, asMols=True):
+                components.append(EnhancedMol(rdmol=component))
+            if len(components) == 1:
+                components = None
+            self._components = components
+        return self._components
+    
+    @property
+    def series(self) -> pd.Series:
+        features = self.features.copy()
+        feature_names = list(features.keys())
+        features['smiles'] = self.smiles
+        features = pd.Series(features, index=['smiles'] + feature_names)
+        return features
+    
+    @property
+    def atom_attr(self) -> pd.DataFrame:
+        attr = {'atom_num': self.atom_num}
+        atom_prop_dict = self.atoms[0].GetPropsAsDict()
+        for key, value in atom_prop_dict.items():
+            if key not in attr and not key.startswith('_'):
+                attr[key] = [float(atom.GetProp(key)) for atom in self.atoms]
+        return pd.DataFrame(attr)
+    
+    def add_atom_attr(self, key: str, value: List[float]):
+        """Add atom attribute to RDKit Mol object."""
+        for atom, v in zip(self.atoms, value):
+            atom.SetProp(key, str(v))
+    
+    def to_pyscf(self, basis: str='6-31g*') -> 'pyscf.gto.Mole':
+        """Convert to PySCF Mole object."""
+        atom_coords = self.xyz_block.split('\n')[2:]
+        atom_coords_str = '; '.join(atom_coords)
+        mol = pyscf.gto.Mole()
+        mol.atom = atom_coords_str
+        mol.basis = basis
+        mol.charge = self.charge
+        mol.spin = self.num_unpairs
+        return mol
+    
+    def to_ase(self) -> 'ase.Atoms':
+        """Convert to ASE Atoms object."""
+        atom_coords = self.geometry
+        numbers = self.atom_num
+        charges = self.partial_charges
+        return ase.Atoms(numbers=numbers, positions=atom_coords, charges=charges)
+    
+    def view2d(
+        self,
+        figsize: Tuple[int, int]=(300, 300),
+        show_index: bool=False,
+        **kwargs
+    ) -> Image:
+        """View 2D representation of molecule."""
         mol = deepcopy(self.rdmol)
         mol.RemoveAllConformers()
         if show_index:
@@ -109,200 +247,118 @@ class EnhancedMol:
         img = Draw.MolToImage(mol, size=figsize, **kwargs)
         return img
     
-    def to_sdf(self,
-               path: str,
-               name: str=None,
-               prop_dict: Dict[str, float]=None,
-               append: bool=False):
-        r"""Save the molecule to SDF file.
-        
-        Args:
-            path (str): Path to save the SDF file.
-            name (str, optional): Name of the molecule. Defaults to None.
-            prop_dict (Dict[str, float], optional): Dictionary of properties. Defaults to None.
-            append (bool, optional): Whether to append to the file. Defaults to False.
-        """
+    def view3d(
+        self,
+        figsize: Tuple[int, int]=(800, 400),
+    ):
+        view = py3Dmol.view(width=figsize[0], height=figsize[1])
+        sdf_str = self.sdf_block
+        view.addModel(sdf_str, format='sdf')
+        view.setStyle({'stick':{}, 'sphere':{'scale': 0.2}},)
+        view.zoomTo()
+        view.show()
+    
+    def update_feature(self, key: str, value: any):
+        """Update feature."""
+        self.features[key] = value
+    
+    def update_features(self, **kwargs):
+        """Update features."""
+        self.features.update(kwargs)
+
+    def init_geometry(
+        self, 
+        method: Literal['rdkit', 'openbabel']
+    ) -> 'EnhancedMol':
+        """Initialize molecular geometry."""
+        if self.geometry is not None:
+            warnings.warn('Geometry already initialized. Returning original object.')
+            return self
+        emol = self.add_hydrogens()
+        if method == 'rdkit':
+            rdmol = emol.rdmol
+            ps = AllChem.ETKDGv3()
+            ps.randomSeed = 42
+            AllChem.EmbedMolecule(rdmol, ps)
+            if rdmol.GetNumConformers() > 0:
+                AllChem.MMFFOptimizeMolecule(rdmol, maxIters=1000)
+                emol = EnhancedMol(rdmol=rdmol, **self.features)
+        elif method == 'openbabel':
+            smiles = emol.smiles
+            omol = pybel.readstring("smiles", smiles)
+            omol.make3D(steps=1000)
+            with tempfile.NamedTemporaryFile(suffix='.sdf') as tf:
+                omol.write(format='sdf', filename=tf.name, overwrite=True)
+                emol = self.__class__.from_sdf(tf.name)
+            emol.features = self.features
+        else:
+            raise ValueError(f'Unknown method: {method}')
+        return emol
+
+    def update_geometry(self, geometry: np.ndarray) -> 'EnhancedMol':
+        """Update molecular geometry."""
+        rdmol = deepcopy(self.rdmol)
+        rdmol.RemoveAllConformers()
+        conf = Chem.Conformer(self.num_atoms)
+        for i, pos in enumerate(geometry):
+            x, y, z = pos.tolist()
+            conf.SetAtomPosition(i, Point3D(x, y, z))
+        rdmol.AddConformer(conf)
+        return self.__class__(rdmol=rdmol, **self.features)
+    
+    def remove_hydrogens(self) -> 'EnhancedMol':
+        rdmol = Chem.RemoveHs(self.rdmol)
+        return EnhancedMol(rdmol=rdmol, **self.features)
+    
+    def add_hydrogens(self) -> 'EnhancedMol':
+        rdmol = Chem.AddHs(self.rdmol)
+        return EnhancedMol(rdmol=rdmol, **self.features)
+    
+    def require_conformers(func):
+        def wrapper(self, *args, **kwargs):
+            if self.num_conformers == 0:
+                raise ValueError('No conformers found.')
+            return func(self, *args, **kwargs)
+        return wrapper
+    
+    @require_conformers
+    def write_sdf(
+        self,
+        path: str,
+        name: str=None,
+        feature_names: List[str]=None,
+        append: bool=False
+    ) -> str:
         mol = deepcopy(self.rdmol)
-        if mol.GetNumConformers() == 0:
-            raise ValueError('No conformer found. Please generate conformer first.')
-        sio = StringIO()
         if name is not None:
             mol.SetProp('_Name', name)
-        if prop_dict is not None:
-            for k, v in prop_dict.items():
-                mol.SetProp(k, str(v))
+        if feature_names is not None:
+            for feature_name in feature_names:
+                mol.SetProp(feature_name, str(self.features[feature_name]))
+        # Write to string buffer
+        sio = StringIO()
         with Chem.SDWriter(sio) as w:
             w.write(mol)
+        
+        # Write to file
         with open(path, 'a' if append else 'w') as f:
             f.write(sio.getvalue())
-    
-    def add_hydrogens(self, inplace: bool=True):
-        mol = Chem.AddHs(self.rdmol)
-        if inplace:
-            self.set_rdmol(mol)
-        return mol
-    
-    @staticmethod
-    def standardize(mol: Chem.Mol, 
-                    normalize: bool=True,
-                    reionize: bool=True,
-                    uncharge: bool=False,
-                    stereo: bool=True):
-        r"""Standardize the molecule."""
-        mol = deepcopy(mol)
-        if normalize:
-            mol = rdMolStandardize.Normalize(mol)
-        if reionize:
-            reionizer = rdMolStandardize.Reionizer()
-            mol = reionizer.reionize(mol)
-        if uncharge:
-            uncharger = rdMolStandardize.Uncharger()
-            mol = uncharger.uncharge(mol)
-        if stereo:
-            rdmolops.AssignStereochemistry(mol, force=False, cleanIt=True)
-        return mol
-    
-    def set_attr(self, key: str, value):
-        setattr(self, key, value)
-    
-    def get_attr(self, key: str):
-        if key in dir(self):
-            attr = getattr(self, key)
-        else:
-            attr = None
-        return attr
-    
-
-@dataclass
-class EnhancedMols:
-    r"""Class for EnhancedMols object."""
-    
-    emols: List[EnhancedMol]
-    # unique_components: List[EnhancedMol]=None
-    
-    # def __post_init__(self):
-    #     if self.unique_components is None:
-    #         self.unique_components = list(set(self.emols))
-    
-    @classmethod
-    def from_csv(cls, 
-                 csv_path: str,
-                 property_cols: List[str]=None,
-                 smiles_col: str='smiles',
-                 num_samples: int=-1,
-                 remove_hydrogens: bool=True,
-                 show_tqdm: bool=True,
-                 standize: bool=False,
-                 random_state: int=42) -> 'EnhancedMols':
-        r"""Create EnhancedMols object from CSV file."""
-        df = pd.read_csv(csv_path)
-        num_samples = len(df) if num_samples == -1 else num_samples
-        df = df.sample(num_samples, random_state=random_state)
-        source = df[smiles_col].tolist()
-        if property_cols is not None:
-            properties = {col: df[col].tolist() for col in property_cols}
-        else:
-            properties = None
-        return cls.from_source(source, properties, -1, remove_hydrogens, show_tqdm, standize)
         
-    @classmethod
-    def from_source(cls, 
-                    source: Union[str, List[str], Chem.Mol], 
-                    properties: Dict[str, List[float]]=None,
-                    num_samples: Union[int, List[int]]=-1,
-                    remove_hydrogens: bool=True,
-                    show_tqdm: bool=True,
-                    standize: bool=False,
-                    random_state: int=42) -> 'EnhancedMols':
-        r"""Create EnhancedMols object from source.
-        
-        Args:
-            source (Union[str, List[str], Chem.Mol]): Source to create EnhancedMols object.
-                The supported sources are SMILES strings, SDF file, and list of RDKit Mol objects.
-            properties (Dict[str, List[float]], optional): Dictionary of properties. Defaults to None.
-            num_samples (Union[int, List[int]], optional): Number of samples to take. Defaults to -1,
-                which means take all samples.
-            remove_hydrogens (bool, optional): Whether to remove hydrogens. Defaults to True.
-            show_tqdm (bool, optional): Whether to show tqdm progress bar. Defaults to True.
-            standize (bool, optional): Whether to standize the molecule. Defaults to False.
-            random_state (int, optional): Random state for sampling. Defaults to 42.
-        
-        Returns:
-            EnhancedMols: EnhancedMols object.
-        """
-        if isinstance(source, str):
-            assert source.endswith('.sdf'), 'Only SDF file is supported for now.'
-            source = Chem.SDMolSupplier(source, removeHs=remove_hydrogens)
-        if num_samples != -1:
-            np.random.seed(random_state)
-            if isinstance(num_samples, int):
-                sampled_ids = np.random.choice(list(range(len(source))), num_samples, replace=False)
-            elif isinstance(num_samples, list):
-                sampled_ids = num_samples
-            source = [source[int(i)] for i in sampled_ids]
-            del sampled_ids
-        if show_tqdm:
-            source = tqdm(source, desc='Loading molecules')
-        if properties is not None:
-            for value in properties.values():
-                assert len(source) == len(value), 'Number of properties should be the same as number of molecules.'
-        emols = []
-        for i, source in enumerate(source):
-            emol = EnhancedMol.from_source(source, remove_hydrogens=remove_hydrogens, standize=standize)
-            if properties is not None:
-                for k, v in properties.items():
-                    emol.set_attr(k, v[i])
-            emols.append(emol)
-        return cls(emols)
-
-    def __repr__(self):
-        return f'EnhancedMols(num_mols={len(self)})'
+        return os.path.abspath(path)
     
-    def __len__(self):
-        return len(self.emols)
-    
-    def __getitem__(self, key) -> EnhancedMol:
-        return self.emols[key]
-    
-    def get_img(self,
-                head: int=9,
-                figsize: Tuple[int, int]=(300, 300),
-                show_index: bool=False,
-                legends: List[str]=None,
-                **kwargs):
-        r"""Get image of the molecules."""
-        rdmols = [emol.rdmol for emol in self.emols[:head]]
-        if show_index:
-            for rdmol in rdmols:
-                for j, atom in enumerate(rdmol.GetAtoms()):
-                    atom.SetProp('molAtomMapNumber', str(j))
-        if legends is None:
-            legends = [f'ID: {i}' for i in range(len(rdmols))]
-        img = Draw.MolsToGridImage(rdmols,
-                                   subImgSize=figsize,
-                                   legends=legends,
-                                   **kwargs)
-        return img
-    
-    def to_sdf(self,
-               path: str,
-               prop_dict: Dict[str, any]=None):
-        r"""Save the molecules to SDF file."""
-        if prop_dict is None:
-            prop_dict = emol.__dict__
-            prop_dict.pop('rdmol')
-        for i, emol in enumerate(self.emols):
-            emol.to_sdf(path, f'MOL_{i}', prop_dict=prop_dict, append=i!=0)
-        return path
-
-    def remove_none(self):
-        r"""Remove None values from the list."""
-        self.emols = [emol for emol in self.emols if emol is not None]
+    @require_conformers
+    def write_xyz(self, path: str) -> str:
+        Chem.MolToXYZFile(self.rdmol, path)
+        return os.path.abspath(path)
     
     @property
-    def rdmols(self):
-        return [emol.rdmol for emol in self.emols]
+    @require_conformers
+    def sdf_block(self) -> str:
+        sio = StringIO()
+        Chem.SDWriter(sio).write(self.rdmol)
+        return sio.getvalue()
     
     @property
-    def smiles(self):
-        return [emol.smiles for emol in self.emols]
+    @require_conformers
+    def xyz_block(self) -> str:
+        return Chem.MolToXYZBlock(self.rdmol)

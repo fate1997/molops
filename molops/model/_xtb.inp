@@ -1,0 +1,6 @@
+$scc
+    temp=0
+$write
+    output file=properties.out
+    json=true
+    density=true

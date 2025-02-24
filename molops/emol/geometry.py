@@ -8,7 +8,7 @@ from rdkit import Chem
 from rdkit.Chem import AllChem
 from tqdm import tqdm
 
-from molops.emol import EnhancedMol, EnhancedMols
+from molops.emol import EnhancedMol, EMolContainer
 
 
 class GeometryOptimizer:
@@ -23,14 +23,16 @@ class GeometryOptimizer:
         show_progress (bool, optional): Whether to show tqdm progress bar. Defaults to True.
         **tqdm_kwargs: Additional keyword arguments for tqdm.
     """
-    def __init__(self, 
-                 method: Literal['UFF', 'MMFF94', 'XTB', 'ETKDG'], 
-                 workdir: str=None,
-                 sdf_path: str=None,
-                 num_workers: int=1,
-                 remove_hydrogens: bool=False,
-                 show_progress: bool=True,
-                 **tqdm_kwargs):
+    def __init__(
+        self, 
+        method: Literal['UFF', 'MMFF94', 'XTB', 'ETKDG'], 
+        workdir: str=None,
+        sdf_path: str=None,
+        num_workers: int=1,
+        remove_hydrogens: bool=False,
+        show_progress: bool=True,
+        **tqdm_kwargs
+    ):
         self.method = method.upper()
         self.show_progress = show_progress
         self.tqdm_kwargs = tqdm_kwargs
@@ -168,7 +170,7 @@ class GeometryOptimizer:
         r"""Wrapper for _optimize_worker for imap."""
         return self._optimize_worker(*args)
     
-    def optimize_mols(self, emols: List[EnhancedMol], **kwargs) -> EnhancedMols:
+    def optimize_mols(self, emols: List[EnhancedMol], **kwargs) -> EMolContainer:
         r"""Optimize the geometry of a list of molecules."""
         if self.method == 'XTB':
             max_dir_size = kwargs.get('max_dir_size', 100)
@@ -187,7 +189,7 @@ class GeometryOptimizer:
                         results = pool.starmap(self._optimize_worker, args)
         elif self.method in ['UFF', 'MMFF94', 'ETKDG']:
             emols = [self.optimize_mol(emol) for emol in emols]
-            results = EnhancedMols(emols)
+            results = EMolContainer(emols)
             if self.sdf_path is not None:
                 results.to_sdf(self.sdf_path)
         return results

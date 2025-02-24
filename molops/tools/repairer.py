@@ -2,10 +2,10 @@ from rdkit import Chem
 from rdkit.Chem.MolStandardize import rdMolStandardize
 from tqdm import tqdm
 
-from molops.emol import EnhancedMol, EnhancedMols
+from molops.emol import EnhancedMol, EMolContainer
 
 
-class MolRepairer:
+class MolRepair:
     r"""Class for repairing molecules.
     
     Args:
@@ -15,19 +15,21 @@ class MolRepairer:
         canonical_smiles (bool, optional): Whether to generate canonical SMILES. Defaults to True.
         show_tqdm (bool, optional): Whether to show tqdm progress bar. Defaults to False.
     """
-    def __init__(self,
-                 replace_radical: bool=True,
-                 canonical_tautomer: bool=True,
-                 canonical_stereo: bool=False,
-                 canonical_smiles: bool=True,
-                 show_tqdm: bool=False,):
+    def __init__(
+        self,
+        replace_radical: bool=True,
+        canonical_tautomer: bool=True,
+        canonical_stereo: bool=False,
+        canonical_smiles: bool=True,
+        show_tqdm: bool=False,
+    ):
         self.replace_radical = replace_radical
         self.canonical_tautomer = canonical_tautomer
         self.canonical_stereo = canonical_stereo
         self.canonical_smiles = canonical_smiles
         self.show_tqdm = show_tqdm
     
-    def repair(self, emols: EnhancedMols):
+    def repair(self, emols: EMolContainer) -> EMolContainer:
         r"""Repair the molecules."""
         if self.show_tqdm and len(emols) > 1:
             emols = tqdm(emols)
@@ -46,7 +48,7 @@ class MolRepairer:
             if self.canonical_smiles:
                 emol.smiles = Chem.CanonSmiles(emol.smiles)
             repaired_emols.append(emol)
-        return EnhancedMols(repaired_emols)
+        return EMolContainer(repaired_emols)
     
     def radical2hydrogen(self, emol: EnhancedMol):
         r"""Replace radical atoms with hydrogen atoms."""
