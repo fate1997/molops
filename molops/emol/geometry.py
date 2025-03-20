@@ -111,7 +111,7 @@ class GeometryOptimizer:
         r"""Optimize the geometry of a molecule."""
         mol = emol.rdmol
         mol = Chem.AddHs(mol)
-        emol.set_rdmol(mol, update_smiles=False)
+        emol = EnhancedMol(mol)
         if self.method in ['UFF', 'MMFF94', 'ETKDG']:
             if mol.GetNumConformers() == 0:
                 mol = self._initialize_by_rdkit(emol)
@@ -146,7 +146,7 @@ class GeometryOptimizer:
                 print(f'RDKit: {[a.GetSymbol() for a in optimized_mol.GetAtoms()]}')
                 return None
             mol.AddConformer(optimized_mol.GetConformer(0))
-        opted_emol = EnhancedMol.from_source(mol, remove_hydrogens=self.remove_hydrogens)
+        opted_emol = EnhancedMol(mol)
         return opted_emol
 
     def _optimize_worker(self,
@@ -160,10 +160,8 @@ class GeometryOptimizer:
         optimized_mol = self.optimize_mol(emol, tempdir=tempdir, level=level)
         if optimized_mol is None:
             return None
-        prop_dict = emol.__dict__
-        prop_dict.pop('rdmol')
         if self.sdf_path is not None:
-            optimized_mol.to_sdf(self.sdf_path, cmpd_name, append=append_to_sdf, prop_dict=prop_dict)
+            optimized_mol.write_sdf(self.sdf_path, cmpd_name, append=append_to_sdf)
         return optimized_mol
     
     def _optimize_worker4imap(self, args):
