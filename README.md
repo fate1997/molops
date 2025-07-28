@@ -44,6 +44,20 @@ emols = EMolContainer.from_sdf('XXX.sdf')
 emols.write_sdf('XXX.sdf')
 ``` 
 
+### geometry optimization
+- `GeometryOptimizer`: Geometry optimizer class. Could be initialized from various methods (including UFF, MMFF94, XTB, ETKDG).
+```python
+from molops import EnhancedMol, EMolContainer
+from molops.emol.geometry import GeometryOptimizer
+
+emol = EnhancedMol.from_smiles('CCO')
+emols = EMolContainer.from_smiles_list(['CCO', 'CCN', 'CCF'])
+
+geometry_optimizer = GeometryOptimizer(method='XTB')
+emol = geometry_optimizer.optimize_mol(emol) # With conformer
+emols = geometry_optimizer.optimize_mols(emols) # With conformer
+```
+
 ### descriptors
 - `ECFP`: Extended Connectivity Fingerprint.
 - `RDKit2D`: RDKit 2D descriptors.
