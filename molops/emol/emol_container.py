@@ -88,7 +88,7 @@ class EMolContainer:
         num_samples: int=-1
     ) -> 'EMolContainer':
         """Create an EMolContainer from a CSV file."""
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, nrows=None if num_samples == -1 else num_samples)
         smiles_list = df[smiles_col].tolist()
         if property_cols is not None:
             feature_dict = {col: df[col].tolist() for col in property_cols}
